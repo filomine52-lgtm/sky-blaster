@@ -1,0 +1,48 @@
+<!doctype html>
+<html><head><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Sky Blaster Arena 3D</title>
+<style>
+html,body{margin:0;overflow:hidden;background:#050914;color:#fff;font-family:Arial;touch-action:none}
+#hud{position:fixed;inset:0;pointer-events:none}.panel{pointer-events:auto;position:absolute;background:#081426dd;padding:14px;border-radius:16px}
+#join{left:50%;top:50%;transform:translate(-50%,-50%);text-align:center}
+input,button{font-size:17px;padding:11px;border:0;border-radius:10px;margin:4px}
+button{font-weight:bold}
+#stats{top:10px;left:10px}#room{top:10px;right:10px}
+#fire{pointer-events:auto;position:absolute;right:24px;bottom:30px;width:90px;height:90px;border-radius:50%;background:#ffd447}
+#stick{pointer-events:auto;position:absolute;left:22px;bottom:28px;width:130px;height:130px;border-radius:50%;background:#ffffff22;border:2px solid #ffffff55}
+#knob{position:absolute;left:40px;top:40px;width:50px;height:50px;border-radius:50%;background:#ffffff66}
+#tip{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);opacity:.7;font-size:12px}
+</style></head>
+<body><div id="hud">
+<div id="join" class="panel"><h2>SKY BLASTER ARENA 3D</h2><input id="name" placeholder="Your name"><input id="code" value="ROOM1"><br><button id="play">JOIN 2-PLAYER MATCH</button><div id="status">Waiting to connect...</div></div>
+<div id="stats" class="panel" style="display:none">❤️ <span id="hp">100</span> &nbsp; 🏆 <span id="score">0</span></div>
+<div id="room" class="panel" style="display:none">ROOM <span id="roomtxt"></span></div>
+<div id="stick" style="display:none"><div id="knob"></div></div><button id="fire" style="display:none">FIRE</button><div id="tip" style="display:none">WASD / touch pad • drag/touch screen to aim • FIRE</div>
+</div>
+<script src="/socket.io/socket.io.js"></script>
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js';
+const socket=io();let me=null,players=new Map(),keys={},yaw=0,move={x:0,z:0};
+const scene=new THREE.Scene();scene.background=new THREE.Color(0x050914);scene.fog=new THREE.Fog(0x050914,12,35);
+const cam=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,.1,100);cam.position.set(0,5,9);
+const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(Math.min(devicePixelRatio,2));document.body.prepend(renderer.domElement);
+scene.add(new THREE.HemisphereLight(0x8fb7ff,0x101018,2));
+const floor=new THREE.Mesh(new THREE.PlaneGeometry(30,22),new THREE.MeshStandardMaterial({color:0x152238,roughness:.8}));floor.rotation.x=-Math.PI/2;scene.add(floor);
+const grid=new THREE.GridHelper(30,30,0x276080,0x18334b);scene.add(grid);
+const matA=new THREE.MeshStandardMaterial({color:0x42d9ff,emissive:0x083344}),matB=new THREE.MeshStandardMaterial({color:0xff5e9c,emissive:0x3a071b});
+function makePlayer(id){let g=new THREE.Group();let body=new THREE.Mesh(new THREE.CapsuleGeometry(.55,1.1,6,12),id===me?matA:matB);body.position.y=1.1;g.add(body);let ring=new THREE.Mesh(new THREE.TorusGeometry(.7,.06,8,24),new THREE.MeshBasicMaterial({color:id===me?0x42d9ff:0xff5e9c}));ring.rotation.x=Math.PI/2;ring.position.y=.08;g.add(ring);scene.add(g);return g}
+function sync(list){for(const p of list){if(p.id===me)document.getElementById('hp').textContent=p.hp;if(!players.has(p.id))players.set(p.id,makePlayer(p.id));let g=players.get(p.id);g.position.set(p.x,0,p.z);g.rotation.y=p.ry}}
+socket.on('joined',d=>{me=d.id;document.getElementById('join').style.display='none';for(const id of ['stats','room','stick','fire','tip'])document.getElementById(id).style.display=id==='stats'||id==='room'?'block':'block';document.getElementById('roomtxt').textContent=d.room});
+socket.on('full',()=>document.getElementById('status').textContent='Room is full — use another room code.');
+socket.on('state',d=>sync(d.players));
+socket.on('score',d=>{document.getElementById('score').textContent=d.scores[me]||0});
+document.getElementById('play').onclick=()=>socket.emit('join',{room:document.getElementById('code').value,name:document.getElementById('name').value||'Player'});
+addEventListener('keydown',e=>keys[e.key.toLowerCase()]=1);addEventListener('keyup',e=>keys[e.key.toLowerCase()]=0);
+let last=performance.now();function loop(t){requestAnimationFrame(loop);let dt=Math.min(.05,(t-last)/1000);last=t;
+let p=players.get(me);if(p){let dx=(keys.d?1:0)-(keys.a?1:0),dz=(keys.s?1:0)-(keys.w?1:0);if(move.x||move.z){dx=move.x;dz=move.z}let len=Math.hypot(dx,dz)||1;let speed=5;p.position.x=Math.max(-9,Math.min(9,p.position.x+dx/len*speed*dt));p.position.z=Math.max(-6,Math.min(6,p.position.z+dz/len*speed*dt));p.rotation.y=yaw;cam.position.lerp(new THREE.Vector3(p.position.x,5.5,p.position.z+8),.12);cam.lookAt(p.position.x,1,p.position.z);socket.emit('move',{x:p.position.x,z:p.position.z,ry:yaw})}
+renderer.render(scene,cam)}requestAnimationFrame(loop);
+document.getElementById('fire').onclick=()=>socket.emit('shoot');
+let dragging=false,lastX=0;renderer.domElement.addEventListener('pointerdown',e=>{dragging=true;lastX=e.clientX});renderer.domElement.addEventListener('pointermove',e=>{if(dragging){yaw-=(e.clientX-lastX)*.01;lastX=e.clientX}});addEventListener('pointerup',()=>dragging=false);
+const stick=document.getElementById('stick'),knob=document.getElementById('knob');stick.addEventListener('pointermove',e=>{if(e.buttons!==1)return;let r=stick.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2;let dx=e.clientX-cx,dy=e.clientY-cy,l=Math.min(45,Math.hypot(dx,dy)),a=Math.atan2(dy,dx);knob.style.left=(40+Math.cos(a)*l)+'px';knob.style.top=(40+Math.sin(a)*l)+'px';move.x=Math.cos(a)*l/45;move.z=Math.sin(a)*l/45});stick.addEventListener('pointerup',()=>{move={x:0,z:0};knob.style.left='40px';knob.style.top='40px'});
+addEventListener('resize',()=>{cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
+</script></body></html>
